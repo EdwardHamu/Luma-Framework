@@ -100,7 +100,8 @@ jobs:
           }
 
           # Add DLSS for GBFR (uses NGX)
-          if ("${{ inputs.configuration }}" -eq "Development-Release") {
+          # Match main CI behavior: use the release DLSS DLL for all non-debug builds
+          if ("${{ inputs.configuration }}" -eq "Development-Debug") {
             $ngxSrc = "Source/External/NGX/bin/dev/nvngx_dlss.dll"
           } else {
             $ngxSrc = "Source/External/NGX/bin/rel/nvngx_dlss.dll"
@@ -116,7 +117,11 @@ jobs:
           Copy-Item -Path "Binaries/x64-${{ inputs.configuration }}/Luma-$projectName.addon" -Destination "$tempDir/Luma-$projectName.addon"
 
           # Create zip with addon and renamed Shaders folder
-          $zipName = "Luma-Granblue_Fantasy_Relink.zip"
+          $zipName = "Luma-Granblue_Fantasy_Relink"
+          # Add "Test"/"Dev" tag matching main CI release naming
+          if ("${{ inputs.configuration }}" -eq "Test-Release") { $zipName += "-Test" }
+          if ("${{ inputs.configuration }}" -eq "Development-Release") { $zipName += "-Dev" }
+          $zipName += ".zip"
           Compress-Archive -Path "$tempDir/*" -DestinationPath "$zipName" -Force
           Remove-Item -Recurse -Force $tempDir
           Write-Host "Mod packaged: $projectName"
@@ -124,5 +129,5 @@ jobs:
       - name: Upload ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: Luma-Granblue_Fantasy_Relink
-          path: Luma-Granblue_Fantasy_Relink.zip
+          name: Luma-Granblue_Fantasy_Relink-${{ inputs.configuration }}
+          path: Luma-Granblue_Fantasy_Relink*.zip
