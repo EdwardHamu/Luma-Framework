@@ -42,7 +42,7 @@ jobs:
 
       - name: Build Granblue Fantasy Relink addon (${{ inputs.configuration }})
         run: |
-          msbuild "Source\Games\Granblue Fantasy Relink\Granblue Fantasy Relink.vcxproj" /p:Configuration=${{ inputs.configuration }} /p:Platform=x64 /p:SolutionDir="${{ github.workspace }}\" /p:DefineConstants="REMOTE_BUILD=1"
+          msbuild "Source\Games\Granblue Fantasy Relink\Granblue Fantasy Relink.vcxproj" /p:Configuration=${{ inputs.configuration }} /p:Platform=x64 /p:SolutionDir="${{ github.workspace }}\" /p:SolutionName="Luma" /p:DefineConstants="REMOTE_BUILD=1"
         continue-on-error: false
 
       - name: Package ZIP
