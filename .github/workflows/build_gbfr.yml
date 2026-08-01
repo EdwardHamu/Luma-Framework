@@ -1,0 +1,128 @@
+name: Build & Package Granblue Fantasy Relink
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: 'Build configuration'
+        required: true
+        default: 'Publishing-Release'
+        type: choice
+        options:
+          - Publishing-Release
+          - Test-Release
+          - Development-Release
+
+jobs:
+  build-gbfr:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v1.1.2
+
+      - name: Clone vcpkg
+        run: git clone https://github.com/microsoft/vcpkg.git
+
+      - name: Bootstrap vcpkg
+        run: .\vcpkg\bootstrap-vcpkg.bat
+
+      - name: Integrate vcpkg with MSBuild
+        run: .\vcpkg\vcpkg integrate install
+
+      - name: Build ReShade (Release)
+        run: |
+          msbuild "Source\External\reshade\ReShade.sln" /p:Configuration="Release" /p:Platform="64-bit"
+        continue-on-error: false
+
+      - name: Build Granblue Fantasy Relink addon (${{ inputs.configuration }})
+        run: |
+          msbuild Luma.sln /p:Configuration=${{ inputs.configuration }} /p:Platform=x64 /t:"Granblue Fantasy Relink" /p:DefineConstants="REMOTE_BUILD=1"
+        continue-on-error: false
+
+      - name: Package ZIP
+        shell: pwsh
+        run: |
+          $projectName = "Granblue Fantasy Relink"
+          $tempDir = "temp_package"
+          Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path "$tempDir/Luma" -Force | Out-Null
+
+          # Copy shaders folder contents into Luma subfolder
+          Copy-Item -Path "Shaders/*" -Destination "$tempDir/Luma" -Recurse
+
+          # Allowed subdirectories
+          $allowedDirs = @("Global", "Includes", $projectName)
+
+          # Full path to the copied Shaders folder
+          $shaderRoot = Join-Path $tempDir "Luma"
+
+          # Remove disallowed folders (e.g. shaders for other mods) immediately inside $shaderRoot
+          Get-ChildItem -Path $shaderRoot -Directory | ForEach-Object {
+            if ($allowedDirs -notcontains $_.Name) {
+                Write-Host "Removing disallowed folder: $($_.FullName)"
+                Remove-Item $_.FullName -Recurse -Force
+            } elseif ("${{ inputs.configuration }}" -notmatch "Development") {
+              # Inside allowed folders, delete specific subfolders that we don't need for non dev builds
+              $foldersToDelete = @("Unused", "Dev", "Sample")
+              foreach ($folder in $foldersToDelete) {
+                $target = Join-Path $_.FullName $folder
+                if (Test-Path $target) {
+                  Write-Host "Removing subfolder from allowed dir: $target"
+                  Remove-Item $target -Recurse -Force
+                }
+              }
+            }
+          }
+
+          # Keep only .hlsl/.hlsli files under the copied Shaders folder
+          Get-ChildItem -Path $shaderRoot -Recurse -File | ForEach-Object {
+            if ($_.Extension.ToLower() -notin @(".hlsl", ".hlsli")) {
+              Remove-Item $_.FullName -Force
+            }
+          }
+
+          # Bundle in the D3D compiler DLL for the platform (x64 here)
+          Copy-Item -Path "Shaders/Decompiler/d3dcompiler_47.dll" -Destination "$tempDir/Luma"
+
+          # Bundle in ReShade files (assuming DX10/11/12), renamed to dxgi.dll
+          $rsSrc = "Source/External/reshade/bin/x64/Release/ReShade64.dll"
+          if (Test-Path $rsSrc) {
+            Copy-Item -Path $rsSrc -Destination "$tempDir/dxgi.dll" -Force
+            Write-Host "Copied ReShade to $tempDir/dxgi.dll"
+          } else {
+            Write-Host "ReShade file not found at $rsSrc — skipping"
+          }
+
+          # Add DLSS for GBFR (uses NGX)
+          if ("${{ inputs.configuration }}" -eq "Development-Release") {
+            $ngxSrc = "Source/External/NGX/bin/dev/nvngx_dlss.dll"
+          } else {
+            $ngxSrc = "Source/External/NGX/bin/rel/nvngx_dlss.dll"
+          }
+          if (Test-Path $ngxSrc) {
+            Copy-Item -Path $ngxSrc -Destination $tempDir -Force
+            Write-Host "Copied NGX DLSS DLL to $tempDir"
+          } else {
+            Write-Host "NGX DLSS DLL not found at $ngxSrc — skipping"
+          }
+
+          # Copy addon file to temp root (and rename it)
+          Copy-Item -Path "Binaries/x64-${{ inputs.configuration }}/Luma-$projectName.addon" -Destination "$tempDir/Luma-$projectName.addon"
+
+          # Create zip with addon and renamed Shaders folder
+          $zipName = "Luma-Granblue_Fantasy_Relink.zip"
+          Compress-Archive -Path "$tempDir/*" -DestinationPath "$zipName" -Force
+          Remove-Item -Recurse -Force $tempDir
+          Write-Host "Mod packaged: $projectName"
+
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Luma-Granblue_Fantasy_Relink
+          path: Luma-Granblue_Fantasy_Relink.zip
