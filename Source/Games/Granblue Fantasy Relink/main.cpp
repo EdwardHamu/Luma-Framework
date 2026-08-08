@@ -8,7 +8,7 @@
 #define ENABLE_UI_VIEWPORT_SCALING_HOOK 0
 #define ENABLE_POST_DRAW_DISPATCH_CALLBACK 1
 #define CHECK_GRAPHICS_API_COMPATIBILITY 1
-#define V2_0_3
+#define V2_0_4
 
 #include <d3d11.h>
 #include "..\..\Core\core.hpp"
@@ -21,6 +21,22 @@
 
 namespace
 {
+   bool first_boot = true;
+   bool enable_hdr = false;
+   bool next_enable_hdr = enable_hdr;
+
+   void DisableGBFRHDRUpgrades()
+   {
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::None;
+      swapchain_upgrade_type = SwapchainUpgradeType::None;
+      texture_format_upgrades_type = TextureFormatUpgradesType::None;
+      texture_upgrade_formats.clear();
+      texture_format_upgrades_2d_size_filters = static_cast<uint32_t>(TextureFormatUpgrades2DSizeFilters::None);
+      enable_chain_indirect_texture_format_upgrades = ChainTextureFormatUpgradesType::None;
+      auto_texture_format_upgrade_shader_hashes.clear();
+      force_disable_display_composition = true;
+   }
+
 #include "includes\upscale.cpp"
 #include "includes\postprocess.cpp"
 #include "includes\ui_scale.cpp"
@@ -875,6 +891,22 @@ public:
       auto& game_device_data = GetGameDeviceData(device_data);
       reshade::api::effect_runtime* runtime = nullptr;
 
+      if (ImGui::Checkbox("Enable Luma HDR", &next_enable_hdr))
+      {
+         reshade::set_config_value(runtime, NAME, "EnableHDR", next_enable_hdr);
+         const int display_mode = static_cast<int>(next_enable_hdr ? DisplayModeType::HDR : DisplayModeType::SDR);
+         reshade::set_config_value(runtime, NAME, "DisplayMode", display_mode);
+      }
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      {
+         ImGui::SetTooltip("Upgrades the swapchain and post-processing resources for Luma HDR.\nRequires a game restart to apply.");
+      }
+      if (next_enable_hdr != enable_hdr)
+      {
+         ImGui::SameLine();
+         ImGui::TextDisabled("Restart required");
+      }
+
       // Render scale slider
       {
          int scale = static_cast<int>(render_scale * 100.0f);
@@ -1424,8 +1456,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
       texture_upgrade_formats = {
          // reshade::api::format::r11g11b10_float,
-         reshade::api::format::r8g8b8a8_typeless
-      };
+         reshade::api::format::r8g8b8a8_typeless};
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
       enable_chain_indirect_texture_format_upgrades = ChainTextureFormatUpgradesType::DirectDependencies;
 
@@ -1483,12 +1514,43 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
    {
       g_rt_creation_hook.reset();
 
-
-
       reshade::unregister_event<reshade::addon_event::execute_secondary_command_list>(GranblueFantasyRelink::OnExecuteSecondaryCommandList);
    }
 
-   CoreMain(hModule, ul_reason_for_call, lpReserved);
+   const BOOL core_loaded = CoreMain(hModule, ul_reason_for_call, lpReserved);
 
-   return TRUE;
+   if (ul_reason_for_call == DLL_PROCESS_ATTACH && core_loaded)
+   {
+      reshade::get_config_value(nullptr, NAME, "FirstBoot", first_boot);
+      if (first_boot)
+      {
+         reshade::set_config_value(nullptr, NAME, "FirstBoot", false);
+
+         bool hdr_supported_display = false;
+         bool hdr_enabled_display = false;
+         Display::IsHDRSupportedAndEnabled(0, hdr_supported_display, hdr_enabled_display);
+         enable_hdr = hdr_supported_display && hdr_enabled_display;
+         reshade::set_config_value(nullptr, NAME, "EnableHDR", enable_hdr);
+      }
+      else
+      {
+         reshade::get_config_value(nullptr, NAME, "EnableHDR", enable_hdr);
+      }
+
+      next_enable_hdr = enable_hdr;
+      const DisplayModeType display_mode = enable_hdr ? DisplayModeType::HDR : DisplayModeType::SDR;
+      const int display_mode_config = static_cast<int>(display_mode);
+      reshade::set_config_value(nullptr, NAME, "DisplayMode", display_mode_config);
+      cb_luma_global_settings.DisplayMode = display_mode;
+
+      if (!enable_hdr)
+      {
+         DisableGBFRHDRUpgrades();
+         cb_luma_global_settings.ScenePeakWhite = srgb_white_level;
+         cb_luma_global_settings.ScenePaperWhite = srgb_white_level;
+         cb_luma_global_settings.UIPaperWhite = srgb_white_level;
+      }
+   }
+
+   return core_loaded;
 }
