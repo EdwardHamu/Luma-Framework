@@ -8,6 +8,7 @@
 #define ENABLE_UI_VIEWPORT_SCALING_HOOK 0
 #define ENABLE_POST_DRAW_DISPATCH_CALLBACK 1
 #define CHECK_GRAPHICS_API_COMPATIBILITY 1
+#define V2_0_4
 
 #include <d3d11.h>
 #include "..\..\Core\core.hpp"
@@ -20,6 +21,22 @@
 
 namespace
 {
+   bool first_boot = true;
+   bool enable_hdr = false;
+   bool next_enable_hdr = enable_hdr;
+
+   void DisableGBFRHDRUpgrades()
+   {
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::None;
+      swapchain_upgrade_type = SwapchainUpgradeType::None;
+      texture_format_upgrades_type = TextureFormatUpgradesType::None;
+      texture_upgrade_formats.clear();
+      texture_format_upgrades_2d_size_filters = static_cast<uint32_t>(TextureFormatUpgrades2DSizeFilters::None);
+      enable_chain_indirect_texture_format_upgrades = ChainTextureFormatUpgradesType::None;
+      auto_texture_format_upgrade_shader_hashes.clear();
+      force_disable_display_composition = true;
+   }
+
 #include "includes\upscale.cpp"
 #include "includes\postprocess.cpp"
 #include "includes\ui_scale.cpp"
@@ -682,22 +699,6 @@ public:
             reinterpret_cast<void*>(&Hooked_InitializeDX11RenderingPipeline));
       }
 
-#if ENABLE_UI_VIEWPORT_SCALING_HOOK
-      if (!g_dispatch_viewport_hook)
-      {
-         g_dispatch_viewport_hook = safetyhook::create_inline(
-            g_resolved_addresses.dispatch_render_pass_viewport,
-            reinterpret_cast<void*>(&Hooked_DispatchRenderPassViewport));
-      }
-
-      if (!g_ui_orchestrator_hook)
-      {
-         g_ui_orchestrator_hook = safetyhook::create_mid(
-            g_resolved_addresses.ui_render_orchestrator,
-            &OnUIRenderOrchestratorEntry);
-      }
-#endif
-
       PatchJitterPhases();
 
 #ifdef PATCH_JITTER_TABLE_INIT
@@ -891,6 +892,22 @@ public:
    {
       auto& game_device_data = GetGameDeviceData(device_data);
       reshade::api::effect_runtime* runtime = nullptr;
+
+      if (ImGui::Checkbox("Enable Luma HDR", &next_enable_hdr))
+      {
+         reshade::set_config_value(runtime, NAME, "EnableHDR", next_enable_hdr);
+         const int display_mode = static_cast<int>(next_enable_hdr ? DisplayModeType::HDR : DisplayModeType::SDR);
+         reshade::set_config_value(runtime, NAME, "DisplayMode", display_mode);
+      }
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      {
+         ImGui::SetTooltip("Upgrades the swapchain and post-processing resources for Luma HDR.\nRequires a game restart to apply.");
+      }
+      if (next_enable_hdr != enable_hdr)
+      {
+         ImGui::SameLine();
+         ImGui::TextDisabled("Restart required");
+      }
 
       // Render scale slider
       {
@@ -1241,27 +1258,26 @@ public:
                ImGui::Text("0x%llX", static_cast<unsigned long long>(active_addr));
             else
                ImGui::TextUnformatted("N/A");
-         };
+          };
 
-         draw_code_addr_row("InitializeDX11RenderingPipeline", g_resolved_addresses.initialize_dx11_rendering_pipeline);
-         draw_code_addr_row("DispatchRenderPassViewport", g_resolved_addresses.dispatch_render_pass_viewport);
-         draw_code_addr_row("UIRenderOrchestrator", g_resolved_addresses.ui_render_orchestrator);
-         draw_code_addr_row("Jitter Write Site", g_resolved_addresses.jitter_write_site);
+          draw_code_addr_row("InitializeDX11RenderingPipeline", g_resolved_addresses.initialize_dx11_rendering_pipeline);
+          draw_code_addr_row("Jitter Write Site", g_resolved_addresses.jitter_write_site);
 #ifdef PATCH_JITTER_TABLE_INIT
-         draw_code_addr_row("TemporalAAComponentInit", g_resolved_addresses.temporal_aa_component_init);
+          draw_code_addr_row("TemporalAAComponentInit", g_resolved_addresses.temporal_aa_component_init);
 #endif
 
-         draw_data_addr_row("g_outputWidth", g_resolved_addresses.output_width);
-         draw_data_addr_row("g_outputHeight", g_resolved_addresses.output_height);
-         draw_data_addr_row("g_renderWidth", g_resolved_addresses.render_width);
-         draw_data_addr_row("g_renderHeight", g_resolved_addresses.render_height);
+          draw_data_addr_row("g_renderWidth", g_resolved_addresses.render_width);
+          draw_data_addr_row("g_renderHeight", g_resolved_addresses.render_height);
 #ifdef V1_3_2
-         draw_data_addr_row("g_camera", g_resolved_addresses.camera_global);
+          draw_data_addr_row("g_camera", g_resolved_addresses.camera_global);
 #endif
-         draw_data_addr_row("g_taa_settings_obj", g_resolved_addresses.taa_settings_global);
-         draw_data_addr_row("g_frame_counter", g_resolved_addresses.jitter_phase_counter);
-         draw_data_addr_row("JitterPhaseMask CL imm", g_resolved_addresses.jitter_phase_mask_cl_imm);
-         draw_data_addr_row("JitterPhaseMask EAX imm", g_resolved_addresses.jitter_phase_mask_eax_imm);
+          draw_data_addr_row("g_camera_index", g_resolved_addresses.camera_index);
+          draw_data_addr_row("g_camera_table", g_resolved_addresses.camera_table);
+          draw_data_addr_row("g_taa_running_flag", g_resolved_addresses.taa_running_flag);
+          draw_data_addr_row("g_taa_render_scale_flag_ptr", g_resolved_addresses.taa_render_scale_flag_ptr);
+          draw_data_addr_row("g_taa_settings_obj", g_resolved_addresses.taa_settings_global);
+          draw_data_addr_row("g_jitter_phase_counter", g_resolved_addresses.jitter_phase_counter);
+          draw_data_addr_row("TAA Reset Flag", g_resolved_addresses.taa_reset_flag);
 
          ImGui::EndTable();
       }
@@ -1442,12 +1458,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
 
       texture_upgrade_formats = {
-         reshade::api::format::r8g8b8a8_unorm,
-         reshade::api::format::r8g8b8a8_typeless,
-         reshade::api::format::r11g11b10_float,
-         reshade::api::format::r10g10b10a2_unorm};
-
+         // reshade::api::format::r11g11b10_float,
+         reshade::api::format::r8g8b8a8_typeless};
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
+      enable_chain_indirect_texture_format_upgrades = ChainTextureFormatUpgradesType::DirectDependencies;
 
 #if DEVELOPMENT
       forced_shader_names.emplace(std::stoul("897DB2C0", nullptr, 16), "Outline Prefilter");
@@ -1498,15 +1512,43 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
    else if (ul_reason_for_call == DLL_PROCESS_DETACH)
    {
       g_rt_creation_hook.reset();
-      g_update_screen_resolution_hook.reset();
-      g_dispatch_viewport_hook.reset();
-      g_ui_orchestrator_hook.reset();
-      g_VSSetConstantBuffers1_hook_immediate.reset();
-      g_VSSetConstantBuffers1_hook_deferred.reset();
       reshade::unregister_event<reshade::addon_event::execute_secondary_command_list>(GranblueFantasyRelink::OnExecuteSecondaryCommandList);
    }
 
-   CoreMain(hModule, ul_reason_for_call, lpReserved);
+   const BOOL core_loaded = CoreMain(hModule, ul_reason_for_call, lpReserved);
 
-   return TRUE;
+   if (ul_reason_for_call == DLL_PROCESS_ATTACH && core_loaded)
+   {
+      reshade::get_config_value(nullptr, NAME, "FirstBoot", first_boot);
+      if (first_boot)
+      {
+         reshade::set_config_value(nullptr, NAME, "FirstBoot", false);
+
+         bool hdr_supported_display = false;
+         bool hdr_enabled_display = false;
+         Display::IsHDRSupportedAndEnabled(0, hdr_supported_display, hdr_enabled_display);
+         enable_hdr = hdr_supported_display && hdr_enabled_display;
+         reshade::set_config_value(nullptr, NAME, "EnableHDR", enable_hdr);
+      }
+      else
+      {
+         reshade::get_config_value(nullptr, NAME, "EnableHDR", enable_hdr);
+      }
+
+      next_enable_hdr = enable_hdr;
+      const DisplayModeType display_mode = enable_hdr ? DisplayModeType::HDR : DisplayModeType::SDR;
+      const int display_mode_config = static_cast<int>(display_mode);
+      reshade::set_config_value(nullptr, NAME, "DisplayMode", display_mode_config);
+      cb_luma_global_settings.DisplayMode = display_mode;
+
+      if (!enable_hdr)
+      {
+         DisableGBFRHDRUpgrades();
+         cb_luma_global_settings.ScenePeakWhite = srgb_white_level;
+         cb_luma_global_settings.ScenePaperWhite = srgb_white_level;
+         cb_luma_global_settings.UIPaperWhite = srgb_white_level;
+      }
+   }
+
+   return core_loaded;
 }

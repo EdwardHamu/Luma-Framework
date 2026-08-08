@@ -1079,7 +1079,7 @@ static void RunLatePostProcessPasses(
          settings_data.render_width = static_cast<uint>(device_data.render_resolution.x);
          settings_data.render_height = static_cast<uint>(device_data.render_resolution.y);
          settings_data.dynamic_resolution = false;
-         settings_data.hdr = cb_luma_global_settings.DisplayMode == DisplayModeType::HDR ? true : tonemap_after_taa;
+         settings_data.hdr = tonemap_after_taa || cb_luma_global_settings.DisplayMode == DisplayModeType::HDR;
          settings_data.auto_exposure = true;
          settings_data.inverted_depth = false;
          // Granblue MVs are unjittered (g_ProjectionOffset cancels jitter in the PS)
@@ -1092,7 +1092,9 @@ static void RunLatePostProcessPasses(
 
       // Prepare SR draw data
       {
-         bool reset_sr = device_data.force_reset_sr || game_device_data.output_changed;
+         // v2.0.3+: check the dedicated TAA reset flag via TryReadTAAResetFlag (SEH-safe)
+         bool taa_reset_flag = TryReadTAAResetFlag();
+         bool reset_sr = device_data.force_reset_sr || game_device_data.output_changed || taa_reset_flag;
          device_data.force_reset_sr = false;
          float jitter_x = game_device_data.table_jitter.x;
          float jitter_y = game_device_data.table_jitter.y;
@@ -1200,6 +1202,20 @@ static void RunLatePostProcessPasses(
 
    // Pipeline chain SRV threaded through late-replay passes (split -> PostSREncode -> MotionBlur -> Tonemap -> Cutscene -> UI)
    ID3D11ShaderResourceView* pipeline_color_srv = GetPostAAColorInputSRV(device_data, game_device_data);
+
+   // SDR has already passed through the game's native tonemap before TAA/SR.
+   // Copy the reconstructed gamma-space image directly to the game output.
+   if (cb_luma_global_settings.DisplayMode == DisplayModeType::SDR)
+   {
+      if (CanDrawNativeUIEncodePass(pipeline_color_srv, game_device_data))
+      {
+         DrawNativeUIEncodePass(native_device_context, cmd_list_data, device_data, game_device_data, pipeline_color_srv);
+      }
+
+      draw_state_stack.Restore(native_device_context);
+      compute_state_stack.Restore(native_device_context);
+      return;
+   }
 
    auto run_chained_color_pass = [&](const char* pass_name, auto&& draw_fn) -> bool
    {
