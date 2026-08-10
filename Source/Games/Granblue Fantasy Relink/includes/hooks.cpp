@@ -125,11 +125,8 @@ constexpr std::array<float2, JITTER_PHASES> precomputed_jitters = []()
 
 bool TryReadTableJitterFromCounter(float2& out_jitter)
 {
-   // Use the phase index cached by OnJitterWrite rather than g_frame_counter.
-   // g_frame_counter is incremented by GBFR_CameraProjectionData_BulkUpdate_Caller on the
-   // game-logic thread (lock inc @ 0x14019F6AA) one frame ahead of the render thread, causing
-   // an off-by-one. cached_jitter_phase_idx is captured from ctx.rsi+0x24 at the exact
-   // moment the camera write fires — always in sync regardless of TAA component lifecycle.
+   // Use phase index cached by OnJitterWrite to avoid off-by-one from g_frame_counter
+   // (incremented on game-logic thread one frame ahead of render thread).
    if (!g_hook_globals.table_jitter_valid.load(std::memory_order_acquire))
       return false;
    const uint8_t phase_idx = g_hook_globals.cached_jitter_phase_idx.load(std::memory_order_acquire);
@@ -148,6 +145,8 @@ static void __fastcall Hooked_TemporalAntiAliasingComponentInit(void* self)
 
 void PatchJitterPhases()
 {
+   // No-op when PATCH_JITTER_TABLE_INIT is defined — the init hook handles phase control.
+   // When disabled, patches phase mask bytes in the game's jitter write function.
    static_assert((JITTER_PHASES & (JITTER_PHASES - 1)) == 0, "JITTER_PHASES must be a power of 2");
    static_assert(JITTER_PHASES >= 1 && JITTER_PHASES <= 64, "JITTER_PHASES must be between 1 and 64");
 
@@ -215,7 +214,7 @@ bool IsTAARunningThisFrame()
       if (settings_obj == 0)
          return last_known;
 
-       const bool taa_running = (*reinterpret_cast<const uint8_t*>(settings_obj + 0x65) & 1) != 0;
+      const bool taa_running = (*reinterpret_cast<const uint8_t*>(settings_obj + 0x65) & 1) != 0;
       s_last_taa_running.store(taa_running, std::memory_order_release);
       return taa_running;
    }
@@ -311,9 +310,8 @@ static char __fastcall Hooked_InitializeDX11RenderingPipeline(int screen_width, 
       render_h = static_cast<int>((std::max)(1u, render_dims[1]));
 
       // Keep g_renderWidth/g_renderHeight in sync with the args we pass to the trampoline.
-      // CreateRenderTargets initialises these from g_outputWidth/g_outputHeight (always output
-      // dims) and never applies a scale, so without this write the frame graph sees
-      // render == output and skips the temporal upscale path every frame.
+      // TAA component reads these at +0x6B81058/+0x6B8105C to decide whether to run
+      // the temporal upscale path. Without this write, render == output and TUPDrawPass skips.
       if (g_resolved_addresses.render_width != 0 && g_resolved_addresses.render_height != 0)
       {
          *reinterpret_cast<int*>(g_resolved_addresses.render_width) = render_w;

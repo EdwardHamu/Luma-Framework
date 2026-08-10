@@ -737,10 +737,8 @@ public:
                trace_scheduled = true;
                game_device_data.pause_trace_delay_countdown = -1;
 
-               const uintptr_t settings_ptr_addr = g_resolved_addresses.taa_settings_global;
-               const uintptr_t settings_obj = (settings_ptr_addr != 0)
-                                                 ? *reinterpret_cast<const uintptr_t*>(settings_ptr_addr)
-                                                 : 0;
+               uintptr_t settings_obj;
+               TryGetSettingsObject(settings_obj);
 
                auto& snap = game_device_data.pause_snapshot;
                snap.valid = true;
@@ -1083,7 +1081,7 @@ public:
             cb_luma_global_settings.GameSettings.BloomStrength = blooom_strength * 0.02f;
             reshade::set_config_value(runtime, NAME, "BloomStrength", cb_luma_global_settings.GameSettings.BloomStrength);
          }
-         if (DrawResetButton(blooom_strength, 100.f, "BloomStrength", runtime))
+         if (DrawResetButton(blooom_strength, 50.f, "BloomStrength", runtime))
          {
             blooom_strength = 50.f;
             cb_luma_global_settings.GameSettings.BloomStrength = blooom_strength * 0.02f;
@@ -1110,11 +1108,10 @@ public:
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
-      // Read TAA settings object for per-bit queries beyond the TAA-enabled flag
-      const uintptr_t settings_ptr_addr = g_resolved_addresses.taa_settings_global;
-      const uintptr_t settings_obj = (settings_ptr_addr != 0)
-                                        ? *reinterpret_cast<const uintptr_t*>(settings_ptr_addr)
-                                        : 0;
+      // Read TAA settings object for per-bit queries beyond the TAA-enabled flag.
+      // v2.0.3+: kTAASettingsGlobal_RVA is a 16-byte xmmword buffer, NOT a pointer.
+      uintptr_t settings_obj;
+      TryGetSettingsObject(settings_obj);
 
       ImGui::NewLine();
       if (ImGui::BeginTable("gbfr_info", 2, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
@@ -1258,26 +1255,26 @@ public:
                ImGui::Text("0x%llX", static_cast<unsigned long long>(active_addr));
             else
                ImGui::TextUnformatted("N/A");
-          };
+         };
 
-          draw_code_addr_row("InitializeDX11RenderingPipeline", g_resolved_addresses.initialize_dx11_rendering_pipeline);
-          draw_code_addr_row("Jitter Write Site", g_resolved_addresses.jitter_write_site);
+         draw_code_addr_row("InitializeDX11RenderingPipeline", g_resolved_addresses.initialize_dx11_rendering_pipeline);
+         draw_code_addr_row("Jitter Write Site", g_resolved_addresses.jitter_write_site);
 #ifdef PATCH_JITTER_TABLE_INIT
-          draw_code_addr_row("TemporalAAComponentInit", g_resolved_addresses.temporal_aa_component_init);
+         draw_code_addr_row("TemporalAAComponentInit", g_resolved_addresses.temporal_aa_component_init);
 #endif
 
-          draw_data_addr_row("g_renderWidth", g_resolved_addresses.render_width);
-          draw_data_addr_row("g_renderHeight", g_resolved_addresses.render_height);
+         draw_data_addr_row("g_renderWidth", g_resolved_addresses.render_width);
+         draw_data_addr_row("g_renderHeight", g_resolved_addresses.render_height);
 #ifdef V1_3_2
-          draw_data_addr_row("g_camera", g_resolved_addresses.camera_global);
+         draw_data_addr_row("g_camera", g_resolved_addresses.camera_global);
 #endif
-          draw_data_addr_row("g_camera_index", g_resolved_addresses.camera_index);
-          draw_data_addr_row("g_camera_table", g_resolved_addresses.camera_table);
-          draw_data_addr_row("g_taa_running_flag", g_resolved_addresses.taa_running_flag);
-          draw_data_addr_row("g_taa_render_scale_flag_ptr", g_resolved_addresses.taa_render_scale_flag_ptr);
-          draw_data_addr_row("g_taa_settings_obj", g_resolved_addresses.taa_settings_global);
-          draw_data_addr_row("g_jitter_phase_counter", g_resolved_addresses.jitter_phase_counter);
-          draw_data_addr_row("TAA Reset Flag", g_resolved_addresses.taa_reset_flag);
+         draw_data_addr_row("g_camera_index", g_resolved_addresses.camera_index);
+         draw_data_addr_row("g_camera_table", g_resolved_addresses.camera_table);
+         draw_data_addr_row("g_taa_running_flag", g_resolved_addresses.taa_running_flag);
+         draw_data_addr_row("g_taa_render_scale_flag_ptr", g_resolved_addresses.taa_render_scale_flag_ptr);
+         draw_data_addr_row("g_taa_settings_obj", g_resolved_addresses.taa_settings_global);
+         draw_data_addr_row("g_jitter_phase_counter", g_resolved_addresses.jitter_phase_counter);
+         draw_data_addr_row("TAA Reset Flag", g_resolved_addresses.taa_reset_flag);
 
          ImGui::EndTable();
       }
@@ -1459,10 +1456,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
       texture_upgrade_formats = {
          // reshade::api::format::r11g11b10_float,
-         reshade::api::format::r8g8b8a8_typeless};
+         reshade::api::format::r8g8b8a8_typeless
+      };
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
       enable_chain_indirect_texture_format_upgrades = ChainTextureFormatUpgradesType::DirectDependencies;
 
+      // auto_texture_format_upgrade_shader_hashes[std::stoul("4E1187FF", nullptr, 16)] = {{0}, {}}; // Downscale Bloom
+      // auto_texture_format_upgrade_shader_hashes[std::stoul("1C5F92B9", nullptr, 16)] = {{0}, {}}; // Bloom
+      // auto_texture_format_upgrade_shader_hashes[std::stoul("60F0256B", nullptr, 16)] = {{0}, {}}; // Tonemap
+      auto_texture_format_upgrade_shader_hashes[std::stoul("478E345C", nullptr, 16)] = {{1}, {}}; // TAA
 #if DEVELOPMENT
       forced_shader_names.emplace(std::stoul("897DB2C0", nullptr, 16), "Outline Prefilter");
       forced_shader_names.emplace(std::stoul("DA85F5BB", nullptr, 16), "OutlineCS (depth)");
