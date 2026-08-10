@@ -37,7 +37,7 @@ jobs:
 
       - name: Build ReShade (Release)
         run: |
-          msbuild "Source\External\reshade\ReShade.sln" /p:Configuration="Release" /p:Platform="64-bit"
+          msbuild "Source\External\reshade\ReShade.sln" /p:Configuration="Release" /p:Platform="64-bit" /p:PlatformToolset=v145
         continue-on-error: false
 
       - name: Build Granblue Fantasy Relink addon (${{ inputs.configuration }})
