@@ -8,15 +8,37 @@
 // Define the appropriate version macro before including this file:
 //   - V1_3_2  : Game version 1.3.2 (Pre-DLC)
 //   - V2_0_2  : Game version 2.0.2 (DLC)
-//   - V2_0_3  : Game version 2.0.3 (Current)
+//   - V2_0_3  : Game version 2.0.3
+//   - V2_0_4  : Game version 2.0.4 (Current)
 // ============================================================
 
-#ifndef V2_0_3
-#define V2_0_3
+#if !defined(V1_3_2) && !defined(V2_0_2) && !defined(V2_0_3) && !defined(V2_0_4)
+#define V2_0_4
 #endif
 
 // ============================================================
-// v2.0.3 - Current
+// v2.0.4 - Current
+// ============================================================
+#ifdef V2_0_4
+
+constexpr uintptr_t kInitializeDX11RenderingPipeline_RVA = 0x007F4420;
+constexpr uintptr_t kJitterWrite_RVA = 0x02160960;
+constexpr uintptr_t kTemporalAntiAliasingComponent_Init_RVA = 0x021607B0;
+
+constexpr uintptr_t kRenderWidth_RVA = 0x06B822D8;
+constexpr uintptr_t kRenderHeight_RVA = 0x06B822DC;
+constexpr uintptr_t kCameraIndex_RVA = 0x0701F560;
+constexpr uintptr_t kCameraTable_RVA = 0x054BC3A0;
+constexpr uintptr_t kTAASettingsGlobal_RVA = 0x0703DD10;
+constexpr uintptr_t kTAARunningFlag_RVA = 0x073725B8;
+constexpr uintptr_t kTAARenderScaleFlagPointer_RVA = 0x07031030;
+constexpr uintptr_t kJitterPhaseCounter_RVA = 0x0703D6B0;
+constexpr uintptr_t kTAAResetFlag_RVA = 0x07372290;
+
+#endif // V2_0_4
+
+// ============================================================
+// v2.0.3
 // ============================================================
 #ifdef V2_0_3
 
@@ -114,7 +136,7 @@ constexpr uintptr_t kCameraProjectionDataOffset = 0x60;
 constexpr uintptr_t kProjectionJitterXOffset = 0x940;
 constexpr uintptr_t kProjectionJitterYOffset = 0x944;
 // Jitter table: 64 entries × 8 bytes (float2), offset 0x28 from TAA component*
-//   Unchanged across all versions (1.3.2/2.0.2/2.0.3)
+//   Unchanged across all versions (1.3.2/2.0.2/2.0.3/2.0.4)
 constexpr uintptr_t kTAAJitterTableOffset = 0x28;
 constexpr uintptr_t kTAAJitterPhaseIndexOffset = 0x24;
 constexpr size_t kTAAJitterTableCount = 64;
