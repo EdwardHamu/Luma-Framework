@@ -59,6 +59,7 @@ inline auto& g_taa_init_hook = g_hook_globals.taa_init_hook;
 inline auto& g_device_data_ptr = g_hook_globals.device_data_ptr;
 inline auto& g_native_device_ptr = g_hook_globals.native_device_ptr;
 inline GBFRResolvedAddresses g_resolved_addresses;
+inline uint16_t g_gbfr_version_minor = 0;
 
 bool ResolveGBFRAddresses();
 

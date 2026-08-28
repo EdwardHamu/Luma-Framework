@@ -8,7 +8,6 @@
 #define ENABLE_UI_VIEWPORT_SCALING_HOOK 0
 #define ENABLE_POST_DRAW_DISPATCH_CALLBACK 1
 #define CHECK_GRAPHICS_API_COMPATIBILITY 1
-#define V2_0_4
 
 #include <d3d11.h>
 #include "..\..\Core\core.hpp"
@@ -690,7 +689,17 @@ public:
       g_device_data_ptr.store(&device_data, std::memory_order_release);
       g_native_device_ptr.store(native_device, std::memory_order_release);
 
-      ResolveGBFRAddresses();
+      if (!ResolveGBFRAddresses())
+      {
+         reshade::log::message(
+            reshade::log::level::error,
+            "Granblue Fantasy Relink: unsupported executable or hook signatures; native hooks were not installed.");
+         return;
+      }
+
+      reshade::log::message(
+         reshade::log::level::info,
+         std::format("Granblue Fantasy Relink 2.0.{} hook addresses verified.", g_gbfr_version_minor).c_str());
 
       if (!g_rt_creation_hook)
       {
@@ -1424,7 +1433,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
    {
       Globals::SetGlobals(PROJECT_NAME, "Granblue Fantasy Relink");
       Globals::DEVELOPMENT_STATE = Globals::ModDevelopmentState::Playable;
-      Globals::VERSION = 1;
+      Globals::VERSION = 2;
 
       // Outline prefilter and CS hashes (depth source for NewAA mode)
       shader_hashes_OutlinePrefilter.pixel_shaders.emplace(std::stoul("897DB2C0", nullptr, 16));

@@ -3,34 +3,82 @@
 #include "hooks.hpp"
 #include "common.hpp"
 
+#include <algorithm>
+#include <initializer_list>
+
+namespace
+{
+   bool MatchesBytes(uintptr_t address, std::initializer_list<uint8_t> expected)
+   {
+      MEMORY_BASIC_INFORMATION memory_info{};
+      if (VirtualQuery(reinterpret_cast<const void*>(address), &memory_info, sizeof(memory_info)) == 0
+          || memory_info.State != MEM_COMMIT || (memory_info.Protect & PAGE_GUARD) != 0
+          || (memory_info.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) == 0)
+         return false;
+
+      const uintptr_t region_end = reinterpret_cast<uintptr_t>(memory_info.BaseAddress) + memory_info.RegionSize;
+      if (address > region_end || expected.size() > region_end - address)
+         return false;
+
+      return std::equal(expected.begin(), expected.end(), reinterpret_cast<const uint8_t*>(address));
+   }
+}
+
 bool ResolveGBFRAddresses()
 {
-   const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleA(nullptr));
+   const HMODULE module = GetModuleHandleA(nullptr);
+   const uintptr_t base = reinterpret_cast<uintptr_t>(module);
    if (base == 0)
       return false;
 
-   // Hook/function targets (code addresses)
-   g_resolved_addresses.initialize_dx11_rendering_pipeline = reinterpret_cast<void*>(base + kInitializeDX11RenderingPipeline_RVA);
-   g_resolved_addresses.jitter_write_site = reinterpret_cast<void*>(base + kJitterWrite_RVA);
-#ifdef PATCH_JITTER_TABLE_INIT
-   g_resolved_addresses.temporal_aa_component_init = reinterpret_cast<void*>(base + kTemporalAntiAliasingComponent_Init_RVA);
-#endif
+   wchar_t executable_path[MAX_PATH]{};
+   if (GetModuleFileNameW(module, executable_path, MAX_PATH) == 0)
+      return false;
 
-   // Data addresses
-   g_resolved_addresses.render_width = base + kRenderWidth_RVA;
-   g_resolved_addresses.render_height = base + kRenderHeight_RVA;
-   g_resolved_addresses.camera_index = base + kCameraIndex_RVA;
-   g_resolved_addresses.camera_table = base + kCameraTable_RVA;
-   g_resolved_addresses.taa_settings_global = base + kTAASettingsGlobal_RVA;
-#if defined(V2_0_3) || defined(V2_0_4)
-   g_resolved_addresses.taa_running_flag = base + kTAARunningFlag_RVA;
-   g_resolved_addresses.taa_render_scale_flag_ptr = base + kTAARenderScaleFlagPointer_RVA;
+   uint64_t file_version = 0;
+   uint64_t product_version = 0;
+   if (!System::GetDLLVersion(executable_path, file_version, product_version))
+      return false;
+
+   const auto* dos_header = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+   const auto* nt_headers = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos_header->e_lfanew);
+   const uint16_t major = static_cast<uint16_t>(file_version >> 48);
+   const uint16_t minor = static_cast<uint16_t>(file_version >> 32);
+   const uint16_t patch = static_cast<uint16_t>(file_version >> 16);
+   const uint16_t revision = static_cast<uint16_t>(file_version);
+   const GBFRVersionAddressTable* addresses = nullptr;
+   if (major == 2 && minor == 0 && patch == kGBFRVersion204.version_minor && revision == 0
+       && nt_headers->FileHeader.TimeDateStamp == 0x6A6FFBA5 && nt_headers->OptionalHeader.SizeOfImage == 0x8217000)
+      addresses = &kGBFRVersion204;
+   else if (major == 2 && minor == 0 && patch == kGBFRVersion205.version_minor && revision == 0
+            && nt_headers->FileHeader.TimeDateStamp == 0x6A7DA26E && nt_headers->OptionalHeader.SizeOfImage == 0x8217000)
+      addresses = &kGBFRVersion205;
+   else
+      return false;
+
+   const uintptr_t render_pipeline = base + addresses->initialize_dx11_rendering_pipeline;
+   const uintptr_t jitter_write = base + addresses->jitter_write;
+   const uintptr_t taa_init = base + addresses->temporal_aa_component_init;
+   if (!MatchesBytes(render_pipeline, {0x55, 0x41, 0x57, 0x41, 0x56, 0x41, 0x55, 0x41, 0x54})
+       || !MatchesBytes(jitter_write, {0x55, 0x41, 0x57, 0x41, 0x56, 0x56, 0x57, 0x53})
+       || !MatchesBytes(taa_init, {0x56, 0x48, 0x83, 0xEC, 0x40, 0xC5, 0xF8, 0x29, 0x7C, 0x24, 0x30}))
+      return false;
+
+   g_gbfr_version_minor = patch;
+   g_resolved_addresses.initialize_dx11_rendering_pipeline = reinterpret_cast<void*>(render_pipeline);
+   g_resolved_addresses.jitter_write_site = reinterpret_cast<void*>(jitter_write);
+#ifdef PATCH_JITTER_TABLE_INIT
+   g_resolved_addresses.temporal_aa_component_init = reinterpret_cast<void*>(taa_init);
 #endif
-   g_resolved_addresses.jitter_phase_counter = base + kJitterPhaseCounter_RVA;
-#ifdef V1_3_2
-   g_resolved_addresses.camera_global = base + kCameraGlobal_RVA;
-#endif
-   g_resolved_addresses.taa_reset_flag = base + kTAAResetFlag_RVA;
+   g_resolved_addresses.render_width = base + addresses->render_width;
+   g_resolved_addresses.render_height = base + addresses->render_height;
+   g_resolved_addresses.camera_index = base + addresses->camera_index;
+   g_resolved_addresses.camera_table = base + addresses->camera_table;
+   g_resolved_addresses.taa_settings_global = base + addresses->taa_settings_global;
+   g_resolved_addresses.taa_running_flag = base + addresses->taa_running_flag;
+   g_resolved_addresses.taa_render_scale_flag_ptr = base + addresses->taa_render_scale_flag_pointer;
+   g_resolved_addresses.jitter_phase_counter = base + addresses->jitter_phase_counter;
+   g_resolved_addresses.taa_reset_flag = base + addresses->taa_reset_flag;
 
    return true;
 }
@@ -77,7 +125,6 @@ bool TryReadCameraJitter(float2& out_jitter)
 
 void OnJitterWrite(safetyhook::Context& ctx)
 {
-#if defined(V2_0_3) || defined(V2_0_4)
    // v2.0.3+: Jitter stored in TAA component table at [rcx + 8*(phase&0x3F) + 0x28]
    // ctx.rcx = TemporalAntiAliasingComponent*, phase counter is global
    const uint8_t phase = *reinterpret_cast<const uint8_t*>(g_resolved_addresses.jitter_phase_counter);
@@ -86,19 +133,9 @@ void OnJitterWrite(safetyhook::Context& ctx)
       *reinterpret_cast<const uint32_t*>(jit_addr), std::memory_order_release);
    g_hook_globals.table_jitter_y_bits.store(
       *reinterpret_cast<const uint32_t*>(jit_addr + 4), std::memory_order_release);
-#else
-   // v2.0.2/v1.3.2: Jitter written to camera projection, captured from registers
-   g_hook_globals.table_jitter_x_bits.store(static_cast<uint32_t>(ctx.rcx), std::memory_order_release);
-   g_hook_globals.table_jitter_y_bits.store(static_cast<uint32_t>(ctx.rax), std::memory_order_release);
-#endif
    g_hook_globals.table_jitter_valid.store(true, std::memory_order_release);
 #ifdef PATCH_JITTER_TABLE_INIT
-   // Capture phase index for the init hook — source differs per version.
-#if defined(V2_0_3) || defined(V2_0_4)
    const uint8_t phase_idx = *reinterpret_cast<const uint8_t*>(g_resolved_addresses.jitter_phase_counter);
-#else
-   const uint8_t phase_idx = *reinterpret_cast<const uint8_t*>(ctx.rsi + kTAAJitterPhaseIndexOffset);
-#endif
    g_hook_globals.cached_jitter_phase_idx.store(phase_idx, std::memory_order_release);
 #endif
 }
@@ -177,8 +214,7 @@ bool IsTAARunningThisFrame()
 
    const bool last_known = s_last_taa_running.load(std::memory_order_acquire);
 
-#if defined(V2_0_3) || defined(V2_0_4)
-   // v2.0.3+: kTAARunningFlag_RVA is a pointer to the TAA running flag byte.
+   // v2.0.3+: taa_running_flag is a pointer to the TAA running flag byte.
    // Verified in TemporalAntiAliasingComponent::trans (RVA 0x215F9C0):
    //   mov rax, cs:qword_147371338  (RVA 0x7371338) — load pointer
    //   cmp byte ptr [rax], 0        — read byte at target address
@@ -199,59 +235,13 @@ bool IsTAARunningThisFrame()
    {
       return last_known;
    }
-#else
-   // v2.0.2/v1.3.2: TAA running flag at offset 0x65 from settings object pointer.
-   // Verified in 1.3.2 TemporalAntiAliasingComponent::trans (RVA 0x1A9E9D7):
-   //   mov rax, cs:g_taa_settings_obj
-   //   test byte ptr [rax+65h], 1
-   const uintptr_t settings_ptr_addr = g_resolved_addresses.taa_settings_global;
-   if (settings_ptr_addr == 0)
-      return last_known;
-
-   __try
-   {
-      const uintptr_t settings_obj = *reinterpret_cast<const uintptr_t*>(settings_ptr_addr);
-      if (settings_obj == 0)
-         return last_known;
-
-      const bool taa_running = (*reinterpret_cast<const uint8_t*>(settings_obj + 0x65) & 1) != 0;
-      s_last_taa_running.store(taa_running, std::memory_order_release);
-      return taa_running;
-   }
-   __except (EXCEPTION_EXECUTE_HANDLER)
-   {
-      return last_known;
-   }
-#endif
 }
 
 bool TryGetSettingsObject(uintptr_t& out_settings_obj)
 {
-#if defined(V2_0_3) || defined(V2_0_4)
-   // v2.0.3+: kTAASettingsGlobal_RVA is a 16-byte xmmword buffer, not a pointer.
-   // No settings object to dereference.
+   // 2.0.4/2.0.5 taa_settings_global is a 16-byte inline buffer, not a pointer.
    out_settings_obj = 0;
    return false;
-#else
-   // v2.0.2/v1.3.2: kTAASettingsGlobal_RVA is a pointer-to-struct.
-   const uintptr_t settings_ptr_addr = g_resolved_addresses.taa_settings_global;
-   if (settings_ptr_addr == 0)
-   {
-      out_settings_obj = 0;
-      return false;
-   }
-
-   __try
-   {
-      out_settings_obj = *reinterpret_cast<const uintptr_t*>(settings_ptr_addr);
-      return out_settings_obj != 0;
-   }
-   __except (EXCEPTION_EXECUTE_HANDLER)
-   {
-      out_settings_obj = 0;
-      return false;
-   }
-#endif
 }
 
 void* GetVTableFunction(void* obj, size_t index)
