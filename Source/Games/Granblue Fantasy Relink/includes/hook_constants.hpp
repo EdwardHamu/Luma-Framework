@@ -21,17 +21,29 @@
 // ============================================================
 #ifdef V2_0_4
 
+// Code Addresses (RVA from module base)
+//   All code hooks shifted +0xFA0 from v2.0.3 (functions byte-identical, only RIP-relative
+//   data displacements changed)
 constexpr uintptr_t kInitializeDX11RenderingPipeline_RVA = 0x007F4420;
+// JitterWrite: Entry point of TemporalAntiAliasingComponent::trans
+//   v2.0.3: 0x215F9C0 | v2.0.4: 0x2160960 (entry point, +0xFA0)
 constexpr uintptr_t kJitterWrite_RVA = 0x02160960;
+// TAA Component Init: Entry point (push rsi - prologue start)
+//   v2.0.3: 0x215F810 | v2.0.4: 0x21607B0 (+0xFA0)
 constexpr uintptr_t kTemporalAntiAliasingComponent_Init_RVA = 0x021607B0;
 
+// Data Addresses (RVA from module base)
+//   Most globals shifted +0x1280 from v2.0.3 (camera table +0x1000, render-scale flag ptr +0x1290)
 constexpr uintptr_t kRenderWidth_RVA = 0x06B822D8;
 constexpr uintptr_t kRenderHeight_RVA = 0x06B822DC;
 constexpr uintptr_t kCameraIndex_RVA = 0x0701F560;
 constexpr uintptr_t kCameraTable_RVA = 0x054BC3A0;
+// TAASettingsGlobal: 16-byte xmmword buffer (same as v2.0.3 - NOT a pointer-to-struct)
 constexpr uintptr_t kTAASettingsGlobal_RVA = 0x0703DD10;
+// TAARunningFlag: Pointer (qword) to the TAA running flag byte (double-deref, same as v2.0.3)
 constexpr uintptr_t kTAARunningFlag_RVA = 0x073725B8;
 constexpr uintptr_t kTAARenderScaleFlagPointer_RVA = 0x07031030;
+// JitterPhaseCounter: Global phase counter (same as v2.0.3)
 constexpr uintptr_t kJitterPhaseCounter_RVA = 0x0703D6B0;
 constexpr uintptr_t kTAAResetFlag_RVA = 0x07372290;
 
