@@ -1,0 +1,176 @@
+#pragma once
+
+#include <cstdint>
+
+// ============================================================
+// Granblue Fantasy Relink - Version-Specific Address Constants
+// ============================================================
+// Runtime-selected versions:
+//   - 2.0.4: SHA-256 f827f3c13caa90b290fab2fe7e28165a80448fde0a3f7a96d79dac6b8343ff2a
+//   - 2.0.5: SHA-256 7189b958ff0fe5238cea28a2939ffdad6e3a9acb14dd274a9fcc8e7e275bd175
+// Older tables remain below for binary research but are not selected by this build.
+// ============================================================
+
+struct GBFRVersionAddressTable
+{
+   uint16_t version_minor;
+   uintptr_t initialize_dx11_rendering_pipeline;
+   uintptr_t jitter_write;
+   uintptr_t temporal_aa_component_init;
+   uintptr_t render_width;
+   uintptr_t render_height;
+   uintptr_t camera_index;
+   uintptr_t camera_table;
+   uintptr_t taa_settings_global;
+   uintptr_t taa_running_flag;
+   uintptr_t taa_render_scale_flag_pointer;
+   uintptr_t jitter_phase_counter;
+   uintptr_t taa_reset_flag;
+};
+
+constexpr GBFRVersionAddressTable kGBFRVersion204 = {
+   4, 0x007F4420, 0x02160960, 0x021607B0, 0x06B822D8, 0x06B822DC,
+   0x0701F560, 0x054BC3A0, 0x0703DD10, 0x073725B8, 0x07031030,
+   0x0703D6B0, 0x07372290};
+
+constexpr GBFRVersionAddressTable kGBFRVersion205 = {
+   5, 0x007F4760, 0x02160A60, 0x021608B0, 0x06B822D8, 0x06B822DC,
+   0x0701F780, 0x054BC3A0, 0x0703DF30, 0x07372848, 0x07031250,
+   0x0703D8D0, 0x07372520};
+
+// ============================================================
+// v2.0.4 - Current
+// ============================================================
+#ifdef V2_0_4
+
+// Code Addresses (RVA from module base)
+//   All code hooks shifted +0xFA0 from v2.0.3 (functions byte-identical, only RIP-relative
+//   data displacements changed)
+constexpr uintptr_t kInitializeDX11RenderingPipeline_RVA = 0x007F4420;
+// JitterWrite: Entry point of TemporalAntiAliasingComponent::trans
+//   v2.0.3: 0x215F9C0 | v2.0.4: 0x2160960 (entry point, +0xFA0)
+constexpr uintptr_t kJitterWrite_RVA = 0x02160960;
+// TAA Component Init: Entry point (push rsi - prologue start)
+//   v2.0.3: 0x215F810 | v2.0.4: 0x21607B0 (+0xFA0)
+constexpr uintptr_t kTemporalAntiAliasingComponent_Init_RVA = 0x021607B0;
+
+// Data Addresses (RVA from module base)
+//   Most globals shifted +0x1280 from v2.0.3 (camera table +0x1000, render-scale flag ptr +0x1290)
+constexpr uintptr_t kRenderWidth_RVA = 0x06B822D8;
+constexpr uintptr_t kRenderHeight_RVA = 0x06B822DC;
+constexpr uintptr_t kCameraIndex_RVA = 0x0701F560;
+constexpr uintptr_t kCameraTable_RVA = 0x054BC3A0;
+// TAASettingsGlobal: 16-byte xmmword buffer (same as v2.0.3 - NOT a pointer-to-struct)
+constexpr uintptr_t kTAASettingsGlobal_RVA = 0x0703DD10;
+// TAARunningFlag: Pointer (qword) to the TAA running flag byte (double-deref, same as v2.0.3)
+constexpr uintptr_t kTAARunningFlag_RVA = 0x073725B8;
+constexpr uintptr_t kTAARenderScaleFlagPointer_RVA = 0x07031030;
+// JitterPhaseCounter: Global phase counter (same as v2.0.3)
+constexpr uintptr_t kJitterPhaseCounter_RVA = 0x0703D6B0;
+constexpr uintptr_t kTAAResetFlag_RVA = 0x07372290;
+
+#endif // V2_0_4
+
+// ============================================================
+// v2.0.3
+// ============================================================
+#ifdef V2_0_3
+
+// Code Addresses (RVA from module base)
+constexpr uintptr_t kInitializeDX11RenderingPipeline_RVA = 0x007F3480;
+// JitterWrite: Entry point of TemporalAntiAliasingComponent::trans (RVA 0x215F9C0)
+//   v2.0.2: 0x216582D (mid-function) | v2.0.3: 0x215F9C0 (entry point)
+//   Non-trivial: function moved from mid-site to entry point
+constexpr uintptr_t kJitterWrite_RVA = 0x00215F9C0;
+// TAA Component Init: Entry point (push rsi — prologue start)
+//   v2.0.2: 0x2165260 | v2.0.3: 0x215F810
+constexpr uintptr_t kTemporalAntiAliasingComponent_Init_RVA = 0x0215F810;
+
+// Data Addresses (RVA from module base)
+// Render dimensions: TAA component reads these for upscale decision
+//   v2.0.2: 0x6B84088 / 0x6B8408C | v2.0.3: 0x6B81058 / 0x6B8105C
+constexpr uintptr_t kRenderWidth_RVA = 0x06B81058;
+constexpr uintptr_t kRenderHeight_RVA = 0x06B8105C;
+// CameraIndex: int32 — read to index into g_cameraTable
+//   v2.0.2: 0x7021320 | v2.0.3: 0x701E2E0
+constexpr uintptr_t kCameraIndex_RVA = 0x0701E2E0;
+// CameraTable: Array of camera pointers
+//   v2.0.2: 0x54BF400 | v2.0.3: 0x54BB3A0
+constexpr uintptr_t kCameraTable_RVA = 0x054BB3A0;
+// TAASettingsGlobal: 16-byte xmmword buffer in v2.0.3 (NOT a pointer-to-struct)
+//   v2.0.2: 0x7032DE0 (pointer) | v2.0.3: 0x703CA90 (xmmword buffer)
+//   Non-trivial: changed from pointer to inline buffer
+constexpr uintptr_t kTAASettingsGlobal_RVA = 0x0703CA90;
+// TAARunningFlag: Pointer (qword) to the TAA running flag byte.
+//   Double-dereference: load pointer from 0x7371338, then read byte at target.
+//   v2.0.2: 0x7032E45 (offset 0x65 from pointer) | v2.0.3: 0x7371338 (pointer to byte)
+//   Non-trivial: changed from pointer+offset to pointer-to-byte (requires double-deref)
+constexpr uintptr_t kTAARunningFlag_RVA = 0x07371338;
+// TAARenderScaleFlagPointer: Pointer to struct with render scale flag at +0x65
+//   v2.0.2: 0x7032DE0 | v2.0.3: 0x702FDA0
+constexpr uintptr_t kTAARenderScaleFlagPointer_RVA = 0x0702FDA0;
+// JitterPhaseCounter: Global phase counter (v2.0.3 moved from TAA component)
+//   v2.0.2: 0x703F470 | v2.0.3: 0x703C430
+//   Non-trivial: moved from [self+0x24] in TAA component to global
+constexpr uintptr_t kJitterPhaseCounter_RVA = 0x0703C430;
+// TAAResetFlag: uint8_t
+constexpr uintptr_t kTAAResetFlag_RVA = 0x07371010;
+
+#endif // V2_0_3
+
+// ============================================================
+// v2.0.2
+// ============================================================
+#ifdef V2_0_2
+
+constexpr uintptr_t kInitializeDX11RenderingPipeline_RVA = 0x007F9E10;
+constexpr uintptr_t kJitterWrite_RVA = 0x0216582D;
+constexpr uintptr_t kTemporalAntiAliasingComponent_Init_RVA = 0x02165260;
+
+constexpr uintptr_t kOutputWidth_RVA = 0x06B84090;
+constexpr uintptr_t kOutputHeight_RVA = 0x06B84094;
+constexpr uintptr_t kRenderWidth_RVA = 0x06B84088;
+constexpr uintptr_t kRenderHeight_RVA = 0x06B8408C;
+constexpr uintptr_t kCameraIndex_RVA = 0x07021320;
+constexpr uintptr_t kCameraTable_RVA = 0x054BF400;
+constexpr uintptr_t kTAASettingsGlobal_RVA = 0x07032DE0;
+constexpr uintptr_t kJitterPhaseCounter_RVA = 0x0703F470;
+constexpr uintptr_t kJitterPhaseMask_CL_RVA = 0x02165876;
+constexpr uintptr_t kJitterPhaseMask_EAX_RVA = 0x0216587C;
+constexpr uintptr_t kTAAResetFlag_RVA = 0x07371010;
+
+#endif // V2_0_2
+
+// ============================================================
+// v1.3.2
+// ============================================================
+#ifdef V1_3_2
+
+constexpr uintptr_t kInitializeDX11RenderingPipeline_RVA = 0x007455C2;
+constexpr uintptr_t kJitterWrite_RVA = 0x01A9EB6B;
+constexpr uintptr_t kTemporalAntiAliasingComponent_Init_RVA = 0x01A9E5D0;
+
+constexpr uintptr_t kOutputWidth_RVA = 0x068B4090;
+constexpr uintptr_t kOutputHeight_RVA = 0x068B4094;
+constexpr uintptr_t kRenderWidth_RVA = 0x068B4088;
+constexpr uintptr_t kRenderHeight_RVA = 0x068B408C;
+constexpr uintptr_t kCameraGlobal_RVA = 0x068B4F90;
+constexpr uintptr_t kTAASettingsGlobal_RVA = 0x06D32DE0;
+constexpr uintptr_t kJitterPhaseCounter_RVA = 0x06D3F470;
+constexpr uintptr_t kJitterPhaseMask_CL_RVA = 0x01A9EB76;
+constexpr uintptr_t kJitterPhaseMask_EAX_RVA = 0x01A9EB7C;
+
+#endif // V1_3_2
+
+// ============================================================
+// Common offsets (same across all versions)
+// ============================================================
+constexpr size_t kVSSetConstantBuffers1_VTableIndex = 119;
+constexpr uintptr_t kCameraProjectionDataOffset = 0x60;
+constexpr uintptr_t kProjectionJitterXOffset = 0x940;
+constexpr uintptr_t kProjectionJitterYOffset = 0x944;
+// Jitter table: 64 entries × 8 bytes (float2), offset 0x28 from TAA component*
+//   Unchanged across all versions (1.3.2/2.0.2/2.0.3/2.0.4)
+constexpr uintptr_t kTAAJitterTableOffset = 0x28;
+constexpr uintptr_t kTAAJitterPhaseIndexOffset = 0x24;
+constexpr size_t kTAAJitterTableCount = 64;

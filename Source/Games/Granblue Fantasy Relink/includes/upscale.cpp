@@ -35,8 +35,8 @@ static bool SetupSROutput(
 
    HRESULT hr;
    game_device_data.taa_output_texture_rtv = rtv;
-   ID3D11Resource* taa_resource;
-   game_device_data.taa_output_texture_rtv->GetResource(&taa_resource);
+   ComPtr<ID3D11Resource> taa_resource;
+   game_device_data.taa_output_texture_rtv->GetResource(taa_resource.put());
    hr = taa_resource->QueryInterface(game_device_data.taa_output_texture.put());
 
    if (FAILED(hr))
@@ -46,6 +46,7 @@ static bool SetupSROutput(
 
    game_device_data.taa_output_texture->GetDesc(&out_texture_desc);
 
+   out_texture_desc.Format = ResolveGBFRColorViewFormat(out_texture_desc.Format);
    out_texture_desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
 
    auto* sr_instance_data = device_data.GetSRInstanceData();
@@ -306,6 +307,9 @@ static bool DrawNativeUIEncodePass(
    SetLumaConstantBuffers(ctx, cmd_list_data, device_data, reshade::api::shader_stage::pixel, LumaConstantBufferType::LumaData, 0, 0, 0.f, 0.f, do_safety_checks);
 
    ctx->OMSetRenderTargets(0, nullptr, nullptr);
+   ctx->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+   ctx->OMSetDepthStencilState(nullptr, 0);
+   ctx->RSSetState(nullptr);
 
    ctx->PSSetShaderResources(0, 1, &input_color_srv);
 

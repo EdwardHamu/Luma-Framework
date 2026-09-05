@@ -124,6 +124,7 @@ inline auto& shader_hashes_UIBackgroundDownscale = g_shader_hashes.ui_background
 inline auto& render_scale = g_runtime_settings.render_scale;
 inline auto& render_scale_changed = g_runtime_settings.render_scale_changed;
 
+DXGI_FORMAT ResolveGBFRColorViewFormat(DXGI_FORMAT format);
 bool CreateOrRecreateTextureIfNeeded(GameDeviceDataGBFR& game_device_data, ID3D11Device* native_device, D3D11_TEXTURE2D_DESC desc, ComPtr<ID3D11Texture2D>& texture);
 bool CreateOrRecreateTextureIfNeeded(GameDeviceDataGBFR& game_device_data, ID3D11Device* native_device, D3D11_TEXTURE2D_DESC desc, ComPtr<ID3D11Texture2D>& texture, ComPtr<ID3D11ShaderResourceView>& srv);
 bool CreateOrRecreateTextureIfNeeded(GameDeviceDataGBFR& game_device_data, ID3D11Device* native_device, D3D11_TEXTURE2D_DESC desc, ComPtr<ID3D11Texture2D>& texture, ComPtr<ID3D11ShaderResourceView>& srv, ComPtr<ID3D11RenderTargetView>& rtv);
